@@ -1,6 +1,6 @@
-name: 'Push To Registry'
+name: 'Push To Registry (Fork Test Klaas)'
 description: 'Push a container image to an image registry'
-author: 'Red Hat'
+author: 'Klaas-'
 branding:
   icon: circle
   color: red
