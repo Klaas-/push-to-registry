@@ -482,30 +482,44 @@ async function execute(
         const groupName = [ executable, ...args ].join(" ");
         core.startGroup(groupName);
     }
+    const retryMaximum = 10;
+    let retryCounter = 0;
+    let exitCode = 0;
+    let error = '';
+    let waitMaxSeconds = 60;
+    while (retryCounter < retryMaximum) {
+        try {
+            exitCode = await exec.exec(executable, args, finalExecOptions);
 
-    try {
-        const exitCode = await exec.exec(executable, args, finalExecOptions);
-
-        if (execOptions.ignoreReturnCode !== true && exitCode !== 0) {
-            // Throwing the stderr as part of the Error makes the stderr show up in the action outline,
-            // which saves some clicking when debugging.
-            let error = `${path.basename(executable)} exited with code ${exitCode}`;
-            if (stderr) {
-                error += `\n${stderr}`;
+            if (execOptions.ignoreReturnCode !== true && exitCode !== 0) {
+                // Throwing the stderr as part of the Error makes the stderr show up in the action outline,
+                // which saves some clicking when debugging.
+                error += `${path.basename(executable)} exited with code ${exitCode}`;
+                if (stderr) {
+                    error += `\n${stderr}`;
+                }
+                throw new Error(error);
             }
-            throw new Error(error);
         }
-
+        catch {
+            retryCounter++;
+            if (retryCounter >= retryMaximum) {
+                error += `\nMaximum Retries exceeded, giving up`;
+                throw new Error(error);
+            }
+            let delay = Math.floor(Math.random() * waitMaxSeconds * 1000);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        finally {
+            if (execOptions.group) {
+                core.endGroup();
+            }
+        }
+    
         return {
             exitCode,
             stdout,
             stderr,
-        };
-    }
-
-    finally {
-        if (execOptions.group) {
-            core.endGroup();
         }
     }
 }
