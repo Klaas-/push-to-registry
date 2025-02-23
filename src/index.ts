@@ -269,7 +269,7 @@ async function run(): Promise<void> {
             args.push(`--creds=${creds}`);
         }
 
-        await execute(await getPodmanPath(), args);
+        await execute(await getPodmanPath(), args, undefined, 10);
         core.info(`✅ Successfully pushed "${sourceImages[i]}" to "${destinationImages[i]}"`);
 
         registryPathList.push(destinationImages[i]);
@@ -462,6 +462,7 @@ async function execute(
     executable: string,
     args: string[],
     execOptions: exec.ExecOptions & { group?: boolean } = {},
+    retryMaximum: number = 1,
 ): Promise<ExecResult> {
     let stdout = "";
     let stderr = "";
@@ -482,31 +483,45 @@ async function execute(
         const groupName = [ executable, ...args ].join(" ");
         core.startGroup(groupName);
     }
+    let retryCounter = 0;
+    let exitCode = 0;
+    let error = '';
+    let waitMaxSeconds = 60;
+    while (retryCounter < retryMaximum) {
+        try {
+            exitCode = await exec.exec(executable, args, finalExecOptions);
 
-    try {
-        const exitCode = await exec.exec(executable, args, finalExecOptions);
-
-        if (execOptions.ignoreReturnCode !== true && exitCode !== 0) {
-            // Throwing the stderr as part of the Error makes the stderr show up in the action outline,
-            // which saves some clicking when debugging.
-            let error = `${path.basename(executable)} exited with code ${exitCode}`;
-            if (stderr) {
-                error += `\n${stderr}`;
+            if (execOptions.ignoreReturnCode !== true && exitCode !== 0) {
+                // Throwing the stderr as part of the Error makes the stderr show up in the action outline,
+                // which saves some clicking when debugging.
+                error += `${path.basename(executable)} exited with code ${exitCode}`;
+                if (stderr) {
+                    error += `\n${stderr}`;
+                }
+                throw new Error(error);
             }
-            throw new Error(error);
+	    break;
         }
-
-        return {
-            exitCode,
-            stdout,
-            stderr,
-        };
+        catch {
+            retryCounter++;
+            if (retryCounter >= retryMaximum) {
+                error += `\nMaximum Retries exceeded, giving up`;
+                throw new Error(error);
+            }
+            let delay = Math.floor(Math.random() * waitMaxSeconds * 1000);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+        finally {
+            if (execOptions.group) {
+                core.endGroup();
+            }
+        }
+    
     }
-
-    finally {
-        if (execOptions.group) {
-            core.endGroup();
-        }
+    return {
+        exitCode,
+        stdout,
+        stderr,
     }
 }
 
